@@ -35,6 +35,14 @@ import {IVRFCoordinatorV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/inter
  */
 contract Raffle is VRFConsumerBaseV2Plus {
     error Raffle__NotEnoughEthSent();
+    error Raffle__TransferFailed();
+    error Raffle__RaffleNotOpen();
+
+    /** Type declarations */
+    enum RaffleState {
+        OPEN, // 0
+        CALCULATING // 1
+    }
 
     /** State Variables */
     uint16 private constant REQUEST_CONFIRMATIONS = 3;
@@ -50,9 +58,12 @@ contract Raffle is VRFConsumerBaseV2Plus {
 
     address payable[] private s_players;
     uint256 private s_lastTimeStamp;
+    address private s_recentWinner;
+    RaffleState private s_raffleState;
 
     /** Events */
     event EnteredRaffle(address indexed player);
+    event PickedWinner(address indexed winner);
 
     constructor(
         uint256 entranceFee,
@@ -68,6 +79,8 @@ contract Raffle is VRFConsumerBaseV2Plus {
         i_gasLane = gasLane;
         i_subscriptionId = subscriptionId;
         i_callbackGasLimit = callbackGasLimit;
+
+        s_raffleState = RaffleState.OPEN;
         s_lastTimeStamp = block.timestamp;
     }
 
@@ -77,6 +90,9 @@ contract Raffle is VRFConsumerBaseV2Plus {
         // Using custom error for more gas effiencency
         if (msg.value < i_entranceFee) {
             revert Raffle__NotEnoughEthSent();
+        }
+        if (s_raffleState != RaffleState.OPEN) {
+            revert Raffle__RaffleNotOpen();
         }
 
         s_players.push(payable(msg.sender));
@@ -96,6 +112,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
         if ((block.timestamp - s_lastTimeStamp) > i_interval) {
             revert();
         }
+        s_raffleState = RaffleState.CALCULATING;
 
         // 1. Request the RNG
         // 2. Get the random number
@@ -113,10 +130,34 @@ contract Raffle is VRFConsumerBaseV2Plus {
         );
     }
 
+    // CEI: Checks, Effects, Interactions
     function fulfillRandomWords(
         uint256 requestId,
         uint256[] calldata randomWords
-    ) internal override {}
+    ) internal override {
+        // s_players = 10
+        // rng = 12
+        // 12 % 10 = 2 <- Winner
+
+        // Checks
+        // require (if -> errors)
+
+        // Effects (Our own contract)
+        uint256 indexOfWinner = randomWords[0] % s_players.length;
+        address payable winner = s_players[indexOfWinner];
+        s_recentWinner = winner;
+        s_raffleState = RaffleState.OPEN;
+
+        s_players = new address payable[](0); // After new winner, we are resetting the array with players
+        s_lastTimeStamp = block.timestamp;
+        emit PickedWinner(winner);
+
+        // Interactions (Other contracts)
+        (bool success, ) = winner.call{value: address(this).balance}("");
+        if (!success) {
+            revert Raffle__TransferFailed();
+        }
+    }
 
     /** Getter  Function */
 
