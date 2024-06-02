@@ -37,6 +37,11 @@ contract Raffle is VRFConsumerBaseV2Plus {
     error Raffle__NotEnoughEthSent();
     error Raffle__TransferFailed();
     error Raffle__RaffleNotOpen();
+    error Raffle__UpkeepNotNeeded(
+        uint256 currentBalance,
+        uint256 numPlayers,
+        uint256 raffleState
+    );
 
     /** Type declarations */
     enum RaffleState {
@@ -102,10 +107,43 @@ contract Raffle is VRFConsumerBaseV2Plus {
         emit EnteredRaffle(msg.sender);
     }
 
+    // When is the winner supposed to be picked?
+    /**
+     * @dev This is the function that the Chainlink Automation nodes call
+     * to see if it's time to perform an upkeep.
+     * The following should be true for this to return true:
+     * 1. The time interval has passed between  raffle runs
+     * 2. The raffle is in the OPEN state
+     * 3. The contract has ETH (aka, players)
+     * 4. (Implicit) The subscription is funded with LINK
+     */
+    function checkUpKeep(
+        bytes memory /* checkData */
+    ) public view returns (bool upkeepNeeded, bytes memory /* performData */) {
+        /** 1. */ bool timeHasPassed = (block.timestamp - s_lastTimeStamp) >=
+            i_interval;
+
+        /** 2. */ bool isOpen = RaffleState.OPEN == s_raffleState;
+
+        /** 3. */ bool hasBalance = address(this).balance > 0;
+        bool hasPlayers = s_players.length > 0;
+
+        upkeepNeeded = (timeHasPassed && isOpen && hasBalance && hasPlayers);
+        return (upkeepNeeded, "0x0"); // 0x0 bytes blank object
+    }
+
     // 1. Get a random number
     // 2. Use the random number to pick a player
     // 3 . Be atuomatically called
-    function pickWinner() external {
+    function performUpkeep(bytes calldata /* performData */) external {
+        (bool upkeepNeeded, ) = checkUpKeep("");
+        if (!upkeepNeeded) {
+            revert Raffle__UpkeepNotNeeded(
+                address(this).balance,
+                s_players.length,
+                uint256(s_raffleState)
+            );
+        }
         // check to see if enough time has passed
 
         // get current time with block.timestamp
@@ -116,7 +154,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
 
         // 1. Request the RNG
         // 2. Get the random number
-        uint256 requestId = i_vrfCoordinator.requestRandomWords(
+        i_vrfCoordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
                 keyHash: i_gasLane, // gas lane
                 subId: i_subscriptionId,
@@ -132,7 +170,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
 
     // CEI: Checks, Effects, Interactions
     function fulfillRandomWords(
-        uint256 requestId,
+        uint256 /* requestId */,
         uint256[] calldata randomWords
     ) internal override {
         // s_players = 10
