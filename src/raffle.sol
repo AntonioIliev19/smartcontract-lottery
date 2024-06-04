@@ -26,6 +26,7 @@ pragma solidity ^0.8.18;
 import {VRFConsumerBaseV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 import {IVRFCoordinatorV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
+import {console} from "forge-std/console.sol";
 
 /**
  * @title A sample Raffle Contract
@@ -69,6 +70,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
     /** Events */
     event EnteredRaffle(address indexed player);
     event PickedWinner(address indexed winner);
+    event RequestedRaffleWinner(uint256 indexed requestId);
 
     constructor(
         uint256 entranceFee,
@@ -145,16 +147,11 @@ contract Raffle is VRFConsumerBaseV2Plus {
             );
         }
         // check to see if enough time has passed
-
-        // get current time with block.timestamp
-        if ((block.timestamp - s_lastTimeStamp) > i_interval) {
-            revert();
-        }
         s_raffleState = RaffleState.CALCULATING;
 
         // 1. Request the RNG
         // 2. Get the random number
-        i_vrfCoordinator.requestRandomWords(
+        uint256 requestId = i_vrfCoordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
                 keyHash: i_gasLane, // gas lane
                 subId: i_subscriptionId,
@@ -166,6 +163,7 @@ contract Raffle is VRFConsumerBaseV2Plus {
                 )
             })
         );
+        emit RequestedRaffleWinner(requestId);
     }
 
     // CEI: Checks, Effects, Interactions
@@ -209,5 +207,17 @@ contract Raffle is VRFConsumerBaseV2Plus {
 
     function getPlayer(uint256 indexOfPlayer) external view returns (address) {
         return s_players[indexOfPlayer];
+    }
+
+    function getRecentWinner() external view returns (address) {
+        return s_recentWinner;
+    }
+
+    function getLengthOfPlayers() external view returns (uint256) {
+        return s_players.length;
+    }
+
+    function getLastTimeStamp() external view returns (uint256) {
+        return s_lastTimeStamp;
     }
 }
